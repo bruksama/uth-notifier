@@ -4,7 +4,7 @@ services:
   db:
     image: postgres:15-alpine
     container_name: uth_bot_db
-    restart: always
+    restart: unless-stopped
     environment:
       POSTGRES_USER: <admin>
       POSTGRES_PASSWORD: <your_strong_password>
@@ -15,7 +15,7 @@ services:
   bot:
     build: .
     container_name: uth_tele_bot
-    restart: always
+    restart: unless-stopped
     depends_on:
       - db
     environment:

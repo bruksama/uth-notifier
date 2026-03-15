@@ -310,12 +310,11 @@ def handleAdminStats(message):
     )
 
 # NOTE: Setting menu func
-
 def handleSettingsRequest(message):
     log("ACTION", f"User {message.chat.id} mở Cài đặt")
     bot.send_message(
         message.chat.id, 
-        "⚙️ <b>TRÌNH CÀI ĐẶT</b>\nMày có thể tùy chỉnh thông báo tại đây:", 
+        "⚙️ <b>TRÌNH CÀI ĐẶT</b>\nBạn có thể tùy chỉnh thông báo tại đây:", 
         parse_mode="HTML", 
         reply_markup=settingsMenu(message.chat.id)
     )
@@ -347,6 +346,46 @@ def handleBackToMain(message):
         reply_markup=mainMenu(message.chat.id)
     )
 
+def handleCheckStatus(message):
+    chatId = str(message.chat.id)
+    log("ACTION", f"User {chatId} đang check status")
+    
+    msgWait = bot.send_message(message.chat.id, "⏳ Đợi mình xíu nhé, mình đang kiểm tra hệ thống giúp bạn...")
+
+    try:
+        conn = getDbConn(); cur = conn.cursor()
+        cur.execute("SELECT uth_user, uth_pass, notify_enabled FROM users WHERE chat_id = %s", (chatId,))
+        u = cur.fetchone(); cur.close(); conn.close()
+
+        if not u:
+            bot.edit_message_text("❌ Hình như bạn chưa đăng ký tài khoản. Hãy đăng ký để mình hỗ trợ tốt hơn nhé!", chatId, msgWait.message_id)
+            return
+
+        startTime = time.time()
+        isValid, reason = verifyUthCredentials(u[0], u[1])
+        latency = round((time.time() - startTime) * 1000)
+
+        apiStatus = "✅ Hoạt động tốt" if isValid else f"❌ Có lỗi ({reason})"
+        credStatus = "✅ Chính xác" if isValid else "❌ Mật khẩu chưa đúng"
+        notifyStatus = "🔔 Đang bật" if u[2] else "🔕 Đang tắt"
+        
+        statusMsg = (
+            "<b>📊 TRẠNG THÁI HỆ THỐNG CỦA BẠN</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"🌐 <b>Kết nối Portal:</b> {apiStatus}\n"
+            f"🔑 <b>Tài khoản UTH:</b> {credStatus}\n"
+            f"📢 <b>Nhắc lịch tự động:</b> {notifyStatus}\n"
+            f"⚡ <b>Độ trễ hệ thống:</b> <code>{latency}ms</code>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "<i>Nếu thông tin chưa chính xác, bạn hãy chọn 'Đăng ký' để cập nhật mật khẩu mới nha!</i>"
+        )
+        
+        bot.edit_message_text(statusMsg, chatId, msgWait.message_id, parse_mode="HTML")
+
+    except Exception as e:
+        log("ERROR", f"Lỗi check status: {e}")
+        bot.edit_message_text("⚠️ Có chút trục trặc nhỏ, mình chưa kiểm tra được. Bạn thử lại sau nhé!", chatId, msgWait.message_id)
+
 # NOTE:Menu duoi ban phim
 def mainMenu(chatId):
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
@@ -366,8 +405,9 @@ def settingsMenu(chatId):
     status = res[0] if res else True
     toggleText = "🔕 Tắt nhắc lịch" if status else "🔔 Bật nhắc lịch"
     
-    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-    markup.add(toggleText)
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add(toggleText, "🔍 Kiểm tra trạng thái")
+    
     markup.add("🔙 Quay lại menu chính")
     return markup
 
@@ -391,6 +431,8 @@ def menuHandler(message):
         handleSettingsRequest(message)
     elif text in ["🔕 Tắt nhắc lịch", "🔔 Bật nhắc lịch"]:
         handleToggleNotify(message)
+    elif text == "🔍 Kiểm tra trạng thái":
+        handleCheckStatus(message)
     elif text == "🔙 Quay lại menu chính":
         handleBackToMain(message)
     

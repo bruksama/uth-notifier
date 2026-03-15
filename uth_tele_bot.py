@@ -169,40 +169,83 @@ def processPasswordStep(message, userData):
 
 
 # check lich
-def processManual(message, dateStr):
+def processManual(chatId, dateStr, isAuto=False):
     try:
         datetime.strptime(dateStr, "%Y-%m-%d")
-        conn = getDbConn(); cur = conn.cursor()
-        cur.execute("SELECT uth_user, uth_pass FROM users WHERE chat_id = %s", (str(message.chat.id),))
-        u = cur.fetchone(); cur.close(); conn.close()
+        
+        conn = getDbConn()
+        cur = conn.cursor()
+        cur.execute("SELECT uth_user, uth_pass FROM users WHERE chat_id = %s", (str(chatId),))
+        u = cur.fetchone()
+        cur.close()
+        conn.close()
+        
         if not u:
-            bot.reply_to(message, "Bạn chưa đăng ký tài khoản mà!")
+            if not isAuto:
+                bot.send_message(chatId, "Bạn chưa đăng ký tài khoản!", reply_markup=mainMenu(chatId))
             return
+
         classes = getClassesByDate(u[0], u[1], dateStr)
         if classes:
-            msg = f"📅 **LỊCH HỌC {dateStr}**\n"
+            header = f"🔔 <b>NHẮC LỊCH TỰ ĐỘNG ({dateStr})</b>\n" if isAuto else f"📅 <b>LỊCH HỌC {dateStr}</b>\n"
+            msg = header + "━━━━━━━━━━━━━━━━━━\n"
+            
             for c in classes:
-                tenMon = c['tenMonHoc']
-                courseLink = c.get('link') 
-
-                msg += f"\n📘 [{tenMon}]({courseLink})"
+                courseLink = c.get('link', 'https://courses.ut.edu.vn/')
+                msg += f"\n📘 <a href='{courseLink}'>{c['tenMonHoc']}</a>"
                 msg += f"\n⏰ {c['tuGio']} - {c['denGio']}"
                 msg += f"\n📍 {c['tenPhong']}\n"
-                
-            msg += f"\n🔗 [Portal UTH](https://portal.ut.edu.vn/)"
+            
+            msg += f"\n🔗 <a href='https://portal.ut.edu.vn/'>Portal UTH</a>"
             
             bot.send_message(
-                message.chat.id, 
+                chatId, 
                 msg, 
-                parse_mode="Markdown", 
-                reply_markup=mainMenu(message.chat.id),
+                parse_mode="HTML", 
+                reply_markup=mainMenu(chatId),
                 disable_web_page_preview=True
             )
-        else: 
-            bot.send_message(message.chat.id, f"🎉 Ngày {dateStr} bạn được nghỉ nè!", reply_markup=mainMenu(message.chat.id))
-    except:
-        log("ERROR", f"User {message.chat.id} nhập sai định dạng ngày: {dateStr}")
-        bot.send_message(message.chat.id, "Định dạng ngày không đúng rồi (YYYY-MM-DD).", parse_mode="Markdown", reply_markup=mainMenu(message.chat.id))
+        else:
+                bot.send_message(chatId, f"🎉 Ngày {dateStr} bạn được nghỉ nè!", reply_markup=mainMenu(chatId))
+                
+    except Exception as e:
+        log("ERROR", f"Lỗi processManual cho {chatId}: {e}")
+        if not isAuto:
+            bot.send_message(chatId, "Định dạng ngày không đúng (YYYY-MM-DD).", reply_markup=mainMenu(chatId))
+
+
+# Check lich theo gio (5h, 12h, 17h +-30s)
+def autoCheckAndNotify():
+    log("AUTO", "Bắt đầu quy trình quét lịch tự động cho tất cả user...")
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    try:
+        conn = getDbConn()
+        cur = conn.cursor()
+        cur.execute("SELECT chat_id FROM users")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        successCount = 0
+        for r in rows:
+            processManual(r[0], today, isAuto=True)
+            successCount += 1
+            time.sleep(0.3)
+            
+        log("SUCCESS", f"Đã hoàn thành nhắc lịch tự động cho {successCount} người.")
+    except Exception as e:
+        log("DATABASE_ERROR", f"Lỗi khi lấy danh sách user: {e}")
+
+def runScheduler():
+    schedule.every().day.at("05:00").do(autoCheckAndNotify)
+    schedule.every().day.at("12:00").do(autoCheckAndNotify)
+    schedule.every().day.at("17:00").do(autoCheckAndNotify)
+    
+    log("SYSTEM", "Trình lập lịch đã được thiết lập (05:00, 12:00, 17:00).\n")
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
 
 # feedback
 @bot.message_handler(func=lambda m: m.text == "📩 Góp ý/Báo lỗi")
@@ -257,14 +300,14 @@ def broadcastToAllUsers(content):
 def menuHandler(message):
     if message.text == "📅 Lịch hôm nay":
         log("QUERY", f"User {message.chat.id} xem lịch hôm nay")
-        processManual(message, datetime.now().strftime("%Y-%m-%d"))
+        processManual(message.chat.id, datetime.now().strftime("%Y-%m-%d"))
     elif message.text == "⏭️ Lịch ngày mai":
         log("QUERY", f"User {message.chat.id} xem lịch ngày mai")
-        processManual(message, (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"))
+        processManual(message.chat.id, (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"))
     elif message.text == "🔍 Check ngày khác":
         log("ACTION", f"User {message.chat.id} muốn check ngày tùy chọn")
         msg = bot.send_message(message.chat.id, "📅 Nhập ngày (YYYY-MM-DD):")
-        bot.register_next_step_handler(msg, lambda m: processManual(m, m.text))
+        bot.register_next_step_handler(msg, lambda m: processManual(m.chat.id, m.text))
     elif str(message.chat.id) == adminId and message.text == "📊 Admin Stats":
         log("ADMIN", f"Admin {adminId} đang xem thống kê")
         conn = getDbConn(); cur = conn.cursor(); cur.execute("SELECT COUNT(*) FROM users")
@@ -274,7 +317,8 @@ def menuHandler(message):
 
 # --- MAIN ---
 if __name__ == "__main__":
-    initDb()
-    setBotCommands()
+    initDb() # gan database
+    setBotCommands() # goi y lenh goc trai
+    threading.Thread(target=runScheduler, daemon=True).start() # daemon nhac lich
     log("SYSTEM", "Bot UTH (camelCase Mode) khởi động!")
-    bot.infinity_polling(timeout=60)
+    bot.infinity_polling(timeout=60) # bot loop

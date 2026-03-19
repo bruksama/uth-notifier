@@ -5,174 +5,210 @@ from telebot import types
 import portalService
 import utils
 import teleFunc
+import courseService
 from datetime import datetime, timedelta
-
+import database as db
 
 adminId = utils.os.getenv("ADMIN_ID")
+
+# ==========================================
+# 1. CẤU HÌNH HỆ THỐNG MENU (KEYBOARDS)
+# ==========================================
+
+def mainMenu(chatId):
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add("🏛️ Portal Menu", "📚 Course Menu") 
+    markup.add("🔑 Đăng ký", "📩 Góp ý/Báo lỗi")
+    markup.add("🛠️ Kiểm tra hệ thống")
+    if str(chatId) == adminId: 
+        markup.add("📊 Admin Stats")
+    return markup
+
+def portalSubMenu():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add("🔔 Bật tắt thông báo lịch")
+    markup.add("📅 Lịch hôm nay", "⏭️ Lịch ngày mai")
+    markup.add("📆 Lịch ngày tùy chọn")
+    markup.add("🏠 Quay lại menu chính")
+    return markup
+
+def courseSubMenu():
+    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+    markup.add("📢 Bật tắt thông báo hằng tuần")
+    markup.add("📑 Quét deadline")
+    markup.add("🏠 Quay lại menu chính")
+    return markup
+
+# ==========================================
+# 2. ĐĂNG KÝ CÁC HANDLER
+# ==========================================
 
 def setBotCommands(bot):
     try:
         commands = [
             types.BotCommand("start", "🏠 Menu chính"),
             types.BotCommand("login", "🔑 Đăng ký tài khoản"),
-            types.BotCommand("feedback", "📩 Góp ý"),
-            types.BotCommand("help", "❓ Hướng dẫn")
+            types.BotCommand("feedback", "📩 Góp ý/Báo lỗi"),
+            types.BotCommand("help", "❓ Hướng dẫn sử dụng")
         ]
         bot.set_my_commands(commands)
     except: pass
 
-
-#NOTE: chi lenh /
 def registerHandlers(bot):
+    
+    # --- LỆNH COMMAND (/) ---
     @bot.message_handler(commands=['start', 'help'])
     def welcome(message):
-        utils.log("INFO", f"User {message.chat.id} vừa nhấn {message.text}")
-        
         welcomeText = (
             "👋 <b>Chào bạn! Mình là Bot nhắc lịch UTH.</b>\n\n"
-            "Mình sẽ giúp bạn theo dõi lịch học và lấy link phòng học Online một cách nhanh chóng nhất.\n\n"
-            "📢 <b>Tham gia nhóm hỗ trợ và cập nhật tin tức tại:</b>\n"
-            "👉 https://t.me/UTH_Calendar\n\n"
-            "Bạn hãy chọn các nút ở menu bên dưới để bắt đầu sử dụng nhé!"
+            "Mình sẽ giúp bạn theo dõi lịch học và deadline từ hệ thống Courses một cách tự động.\n"
+            "Bạn hãy chọn các chức năng ở menu bên dưới để bắt đầu nhé!"
         )
-        
-        bot.reply_to(
-            message, 
-            welcomeText, 
-            parse_mode="HTML", 
-            reply_markup=mainMenu(message.chat.id),
-            disable_web_page_preview=False
-        )
+        bot.send_message(message.chat.id, welcomeText, parse_mode="HTML", reply_markup=mainMenu(message.chat.id))
 
     @bot.message_handler(commands=['broadcast'])
     def handleAdminBroadcast(message):
         if str(message.chat.id) != adminId: return
         rawInput = message.text.split(maxsplit=1)
         if len(rawInput) < 2:
-            bot.reply_to(message, "Nhập nội dung: <code>/broadcast Nội dung</code>", parse_mode="HTML")
+            bot.reply_to(message, "Vui lòng nhập nội dung: <code>/broadcast Nội dung</code>", parse_mode="HTML")
             return
-        bot.send_message(message.chat.id, "⏳ Đang gửi thông báo...")
+        bot.send_message(message.chat.id, "⏳ Đang gửi thông báo đến mọi người...")
         total = teleFunc.broadcastToAllUsers(bot, rawInput[1])
-        bot.send_message(message.chat.id, f"✅ Đã gửi cho {total} bạn.")
+        bot.send_message(message.chat.id, f"✅ Đã gửi thông báo thành công cho {total} người dùng.")
 
-#NOTE: main menu
-    @bot.message_handler(commands=['login'])
-    @bot.message_handler(func=lambda m: m.text == "🔑 Đăng ký tài khoản" or m.text == "/login")
-    def startLogin(message):
-        utils.log("ACTION", f"User {message.chat.id} bắt đầu quy trình đăng ký")
-        msg = bot.send_message(message.chat.id, "🔹 Bước 1: Bạn vui lòng nhập <b>MSSV</b> của mình nhé:", parse_mode="HTML")
-        bot.register_next_step_handler(msg, processMssvStep)
+    # --- ĐIỀU HƯỚNG MENU (FOLDERS) ---
+    @bot.message_handler(func=lambda m: m.text == "🏛️ Portal Menu")
+    def openPortal(message):
+        bot.send_message(message.chat.id, "🏛️ <b>HỆ THỐNG PORTAL</b>", parse_mode="HTML", reply_markup=portalSubMenu())
 
-    def processMssvStep(message):
-        mssv = message.text
-        if not mssv or len(mssv) < 5:
-            utils.log("WARN", f"User {message.chat.id} nhập MSSV không hợp lệ: {mssv}")
-            bot.reply_to(message, "MSSV không hợp lệ, bạn vui lòng thử lại nha.")
-            return
-        utils.log("INFO", f"User {message.chat.id} nhập MSSV: {mssv}")
-        msg = bot.send_message(message.chat.id, f"✅ Nhận MSSV: <code>{mssv}</code>\n🔹 Bước 2: Bạn nhập <b>Mật khẩu UTH</b> nhé:", parse_mode="HTML")
-        bot.register_next_step_handler(msg, processPasswordStep, bot, mssv)
-        
-    def processPasswordStep(message, bot, mssv):
-        pwd = message.text
-        utils.log("ACTION", f"Đang xác thực tài khoản cho User {message.chat.id} (MSSV: {mssv})")
-        bot.send_message(message.chat.id, "⏳ Đang xác thực thông tin, bạn đợi mình xíu nha...")
-        success, resultMsg = portalService.verifyAndSaveUser(message.chat.id, mssv, pwd)
-        bot.send_message(message.chat.id, resultMsg, parse_mode="HTML", reply_markup=mainMenu(message.chat.id))
+    @bot.message_handler(func=lambda m: m.text == "📚 Course Menu")
+    def openCourse(message):
+        bot.send_message(message.chat.id, "📚 <b>HỆ THỐNG COURSES</b>", parse_mode="HTML", reply_markup=courseSubMenu())
 
+    @bot.message_handler(func=lambda m: m.text == "🏠 Quay lại menu chính")
+    def backToMain(message):
+        bot.send_message(message.chat.id, "🏠 Đã quay lại Menu chính.", reply_markup=mainMenu(message.chat.id))
 
-# gop y
-    @bot.message_handler(func=lambda m: m.text == "📩 Góp ý/Báo lỗi")
-    def startFeedback(message):
-        msg = bot.send_message(message.chat.id, "😊 Nhập nội dung góp ý của bạn:")
-        bot.register_next_step_handler(msg, processFeedback, bot)
-
-    def processFeedback(message, bot):
-        if len(message.text) < 5:
-            bot.send_message(message.chat.id, "⚠️ Nội dung quá ngắn.")
-            return
-        bot.send_message(message.chat.id, "✅ Cảm ơn bạn đã góp ý!")
-        if adminId:
-            bot.send_message(adminId, f"📩 <b>FEEDBACK</b>\n👤 ID: <code>{message.chat.id}</code>\n📝: {message.text}", parse_mode="HTML")
-
-# admin stats
-    @bot.message_handler(func=lambda m: m.text == "📊 Admin Stats" and str(m.chat.id) == adminId)
-    def handleStats(message):
-        bot.send_message(message.chat.id, teleFunc.getAdminStats(adminId), parse_mode="HTML")
-
-# check lich
+    # --- CHỨC NĂNG PORTAL ---
     @bot.message_handler(func=lambda m: m.text == "📅 Lịch hôm nay")
     def handleToday(message):
-        utils.log("QUERY", f"User {message.chat.id} xem lịch hôm nay")
-        chatId = message.chat.id
         today = datetime.now().strftime("%Y-%m-%d")
-        bot.send_message(chatId, portalService.formatCalendarMessage(chatId, today), parse_mode="HTML", disable_web_page_preview=True)
+        bot.send_message(message.chat.id, portalService.formatCalendarMessage(message.chat.id, today), parse_mode="HTML", disable_web_page_preview=True)
 
     @bot.message_handler(func=lambda m: m.text == "⏭️ Lịch ngày mai")
     def handleTomorrow(message):
-        utils.log("QUERY", f"User {message.chat.id} xem lịch ngày mai")
-        chatId = message.chat.id
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        bot.send_message(chatId, portalService.formatCalendarMessage(chatId, tomorrow), parse_mode="HTML", disable_web_page_preview=True)
+        bot.send_message(message.chat.id, portalService.formatCalendarMessage(message.chat.id, tomorrow), parse_mode="HTML", disable_web_page_preview=True)
 
-# check ngay khac
-    @bot.message_handler(func=lambda m: m.text == "🔍 Check ngày khác")
-    def askCustomDate(message):
-        utils.log("ACTION", f"User {message.chat.id} muốn check ngày tùy chọn")
-        msg = bot.send_message(message.chat.id, "📅 Nhập ngày (<code>YYYY-MM-DD</code>):", parse_mode="HTML")
+    @bot.message_handler(func=lambda m: m.text == "📆 Lịch ngày tùy chọn")
+    def handleCustomDateRequest(message):
+        msg = bot.send_message(message.chat.id, "📅 Bạn vui lòng nhập ngày muốn xem (Định dạng: <code>YYYY-MM-DD</code>):", parse_mode="HTML")
         bot.register_next_step_handler(msg, processCustomDate, bot)
 
-    def processCustomDate(message, bot):
-        dateStr = message.text
-        try:
-            datetime.strptime(dateStr, "%Y-%m-%d")
-            bot.send_message(message.chat.id, portalService.formatCalendarMessage(message.chat.id, dateStr), parse_mode="HTML", disable_web_page_preview=True)
-        except:
-            bot.send_message(message.chat.id, "❌ Định dạng ngày sai (YYYY-MM-DD).")
-
-
-#NOTE: setting menu
-    @bot.message_handler(func=lambda m: m.text == "⚙️ Cài đặt")
-    def openSettings(message):
-        bot.send_message(message.chat.id, "⚙️ <b>TRÌNH CÀI ĐẶT</b>", parse_mode="HTML", reply_markup=settingsMenu(message.chat.id))
-
-    @bot.message_handler(func=lambda m: m.text in ["🔕 Tắt nhắc lịch", "🔔 Bật nhắc lịch"])
-    def handleToggle(message):
+    @bot.message_handler(func=lambda m: m.text == "🔔 Bật tắt thông báo lịch")
+    def handleTogglePortal(message):
         _, resMsg = teleFunc.handleToggleNotify(message.chat.id)
-        bot.send_message(message.chat.id, resMsg, parse_mode="HTML", reply_markup=settingsMenu(message.chat.id))
+        bot.send_message(message.chat.id, resMsg, parse_mode="HTML")
 
-    @bot.message_handler(func=lambda m: m.text == "🔍 Kiểm tra trạng thái")
-    def showStatus(message):
-        utils.log("ACTION", f"User {message.chat.id} đang check status")
-        msgWait = bot.send_message(message.chat.id, "⏳ Đợi mình xíu nhé, mình đang kiểm tra hệ thống giúp bạn...")
+    # --- CHỨC NĂNG COURSE ---
+    @bot.message_handler(func=lambda m: m.text == "📑 Quét deadline")
+    def handleDeadlineScan(message):
+        bot.send_message(message.chat.id, "🔍 Đang kết nối với hệ thống Courses để kiểm tra bài tập giúp bạn...")
+        courseService.scanAllDeadlines(bot, message.chat.id, isManual=True)
+
+    @bot.message_handler(func=lambda m: m.text == "📢 Bật tắt thông báo hằng tuần")
+    def handleToggleCourse(message):
+        chatId = message.chat.id
+        _, resMsg = teleFunc.handleToggleDeadlineNotify(chatId)
+        bot.send_message(chatId, resMsg, parse_mode="HTML")
+
+    # --- CÁC CHỨC NĂNG CHUNG ---
+    @bot.message_handler(commands=['login'])
+    @bot.message_handler(func=lambda m: m.text == "🔑 Đăng ký")
+    def handleRegister(message):
+        msg = bot.send_message(message.chat.id, "🔑 <b>Bắt đầu đăng ký:</b>\n\nBạn vui lòng nhập <b>MSSV</b> của mình nhé:", parse_mode="HTML")
+        bot.register_next_step_handler(msg, processMssvStep, bot)
+
+    @bot.message_handler(func=lambda m: m.text == "📩 Góp ý/Báo lỗi")
+    def handleFeedbackRequest(message):
+        msg = bot.send_message(message.chat.id, "😊 Bạn có thể nhập nội dung góp ý hoặc báo lỗi tại đây, mình sẽ gửi đến Admin giúp bạn:")
+        bot.register_next_step_handler(msg, processFeedback, bot)
+
+    @bot.message_handler(func=lambda m: m.text == "🛠️ Kiểm tra hệ thống")
+    def handleStatus(message):
+        msgWait = bot.send_message(message.chat.id, "⏳ Bạn đợi mình xíu nhé, mình đang kiểm tra kết nối...")
         teleFunc.getSystemStatus(bot, message.chat.id, msgWait.message_id)
 
-    @bot.message_handler(func=lambda m: m.text == "🔙 Quay lại menu chính")
-    def handleBackMain(message):
-        bot.send_message(message.chat.id, "🔙 Đã quay lại Menu chính.", reply_markup=mainMenu(message.chat.id))
+    @bot.message_handler(func=lambda m: m.text == "📊 Admin Stats" and str(m.chat.id) == adminId)
+    def handleAdminStats(message):
+        bot.send_message(message.chat.id, teleFunc.getAdminStats(adminId), parse_mode="HTML")
 
+    # --- CALLBACK NÚT BẤM (DEADLINE) ---
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('done_'))
+    def onMarkDone(call):
+        handleMarkDone(bot, call)
 
-#NOTE: nhac lenh k hop le
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('undone_'))
+    def onMarkUndone(call):
+        handleMarkUndone(bot, call)
+
+    # --- NHẮC LỆNH SAI ---
     @bot.message_handler(func=lambda m: True)
     def handleUnknown(message):
-        bot.reply_to(message, "⚠️ Lệnh không hợp lệ, mày vui lòng chọn các nút ở Menu bên dưới nhé!", reply_markup=mainMenu(message.chat.id))
+        bot.reply_to(message, "⚠️ Lệnh này mình chưa hiểu, bạn vui lòng sử dụng các nút ở menu nhé!", reply_markup=mainMenu(message.chat.id))
 
-def mainMenu(chatId):
-    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add("📅 Lịch hôm nay", "⏭️ Lịch ngày mai")
-    markup.add("🔑 Đăng ký tài khoản", "🔍 Check ngày khác")
-    markup.add("📩 Góp ý/Báo lỗi", "⚙️ Cài đặt")
-    if str(chatId) == adminId: markup.add("📊 Admin Stats")
-    return markup
+# ==========================================
+# 3. LOGIC XỬ LÝ NỘI BỘ
+# ==========================================
 
-def settingsMenu(chatId):
-    import database as db
-    conn = db.getDbConn(); cur = conn.cursor()
-    cur.execute("SELECT notify_enabled FROM users WHERE chat_id = %s", (str(chatId),))
-    res = cur.fetchone(); cur.close(); conn.close()
-    status = res[0] if res else True
-    toggleText = "🔕 Tắt nhắc lịch" if status else "🔔 Bật nhắc lịch"
-    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(toggleText, "🔍 Kiểm tra trạng thái")
-    markup.add("🔙 Quay lại menu chính")
-    return markup
+def processMssvStep(message, bot):
+    mssv = message.text
+    if not mssv or len(mssv) < 5:
+        bot.reply_to(message, "Mã số sinh viên có vẻ chưa đúng, bạn vui lòng nhập lại nhé.")
+        return
+    msg = bot.send_message(message.chat.id, f"✅ Đã nhận MSSV: <code>{mssv}</code>\n\nTiếp theo, bạn hãy nhập <b>Mật khẩu Portal</b> nha:", parse_mode="HTML")
+    bot.register_next_step_handler(msg, processPasswordStep, bot, mssv)
+
+def processPasswordStep(message, bot, mssv):
+    pwd = message.text
+    bot.send_message(message.chat.id, "⏳ Đang xác thực thông tin, bạn đợi mình một lát nhé...")
+    success, resultMsg = portalService.verifyAndSaveUser(message.chat.id, mssv, pwd)
+    if success:
+        resultMsg += "\n\n✅ Tuyệt vời! Bạn đã đăng ký thành công. Bây giờ bạn có thể xem lịch và deadline rồi đó."
+    bot.send_message(message.chat.id, resultMsg, parse_mode="HTML", reply_markup=mainMenu(message.chat.id))
+
+def processCustomDate(message, bot):
+    try:
+        dateStr = message.text
+        datetime.strptime(dateStr, "%Y-%m-%d")
+        bot.send_message(message.chat.id, portalService.formatCalendarMessage(message.chat.id, dateStr), parse_mode="HTML", disable_web_page_preview=True)
+    except:
+        bot.send_message(message.chat.id, "❌ Định dạng ngày chưa đúng (Bạn hãy nhập YYYY-MM-DD, ví dụ: 2026-03-20).")
+
+def processFeedback(message, bot):
+    teleFunc.handleSendFeedback(bot, message, adminId)
+
+def handleMarkDone(bot, call):
+    chatId = call.message.chat.id
+    taskId = call.data.split('_')[1]
+    if db.markTaskCompleted(chatId, taskId):
+        new_text = call.message.text.replace("❌ Chưa hoàn thành", "✅ Đã hoàn thành")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("❌ Đánh dấu chưa xong", callback_data=f"undone_{taskId}"))
+        try:
+            bot.edit_message_text(new_text, chatId, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+        except: pass
+        bot.answer_callback_query(call.id, "✅ Tuyệt vời! Đã ghi nhận bạn hoàn thành bài tập.")
+
+def handleMarkUndone(bot, call):
+    chatId = call.message.chat.id
+    taskId = call.data.split('_')[1]
+    if db.unmarkTaskCompleted(chatId, taskId):
+        new_text = call.message.text.replace("✅ Đã hoàn thành", "❌ Chưa hoàn thành")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("✅ Đánh dấu hoàn thành", callback_data=f"done_{taskId}"))
+        try:
+            bot.edit_message_text(new_text, chatId, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+        except: pass
+        bot.answer_callback_query(call.id, "❌ Đã chuyển trạng thái về chưa hoàn thành.")

@@ -72,3 +72,40 @@ def getAdminStats(adminId):
         cur.close(); conn.close()
         return f"📊 Tổng số người dùng: <b>{count}</b>"
     except: return "⚠️ Không thể lấy thống kê."
+
+def handleToggleDeadlineNotify(chatId):
+    u = portalService.getUserData(chatId)
+    if not u: return None, "❌ Bạn chưa đăng ký tài khoản."
+
+    currentStatus = db.getDeadlineStatus(chatId)
+    newStatus = not currentStatus
+    
+    if db.updateDeadlineStatus(chatId, newStatus):
+        statusStr = "BẬT" if newStatus else "TẮT"
+        return newStatus, f"✅ Đã <b>{statusStr}</b> thông báo deadline hằng tuần!"
+    
+    return currentStatus, "❌ Có lỗi xảy ra khi cập nhật, bạn vui lòng thử lại sau nha."
+
+def handleSendFeedback(bot, message, adminId):
+    if not message.text or len(message.text) < 5:
+        bot.send_message(message.chat.id, "⚠️ Nội dung góp ý hơi ngắn, bạn vui lòng mô tả chi tiết hơn một chút để mình hỗ trợ nhé.")
+        return False
+
+    user = message.from_user
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Người dùng"
+    username_display = f" (@{user.username})" if user.username else ""
+    user_link = f"tg://user?id={user.id}" # Link nhấn vào là mở Profile
+
+    bot.send_message(message.chat.id, "✅ Cảm ơn bạn rất nhiều! Góp ý của bạn đã được mình gửi đến Admin rồi nha.")
+
+    if adminId:
+        feedback_msg = (
+            "📩 <b>CÓ GÓP Ý/BÁO LỖI MỚI!</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Người gửi:</b> <a href='{user_link}'>{full_name}</a>{username_display}\n"
+            f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
+            f"📝 <b>Nội dung:</b>\n<i>{message.text}</i>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+        )
+        bot.send_message(adminId, feedback_msg, parse_mode="HTML")
+    return True

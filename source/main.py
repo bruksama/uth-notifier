@@ -9,8 +9,10 @@ import time
 from database import initDb
 import teleBot
 import portalService
+import courseService
 import database as db
 from utils import log
+
 
 teleToken = os.getenv("TELE_TOKEN")
 bot = telebot.TeleBot(teleToken)
@@ -28,10 +30,22 @@ def autoCheckAndNotify():
             time.sleep(0.3)
     except Exception as e: log("ERROR", f"Lỗi autoNotify: {e}")
 
+def autoScanAllUsers():
+    log("AUTO", "Bắt đầu quét deadline tuần mới...")
+    try:
+        conn = db.getDbConn(); cur = conn.cursor()
+        cur.execute("SELECT chat_id FROM users WHERE notify_deadline = TRUE")
+        users = cur.fetchall(); cur.close(); conn.close()
+        for u in users:
+            courseService.scanAllDeadlines(bot, u[0], isManual=False)
+            time.sleep(1) # Delay để tránh bị trường chặn IP
+    except Exception as e: log("ERROR", f"Lỗi autoScan: {e}")
+
 def runScheduler():
     schedule.every().day.at("05:00").do(autoCheckAndNotify)
     schedule.every().day.at("12:00").do(autoCheckAndNotify)
     schedule.every().day.at("17:00").do(autoCheckAndNotify)
+    schedule.every().monday.at("21:00").do(autoScanAllUsers)
     while True:
         schedule.run_pending()
         time.sleep(30)
@@ -42,4 +56,11 @@ if __name__ == "__main__":
     teleBot.registerHandlers(bot)
     threading.Thread(target=runScheduler, daemon=True).start()
     log("SYSTEM", "Bot UTH (camelCase) khởi động!")
-    bot.infinity_polling(timeout=60)
+
+    while True:
+            try:
+                bot.polling(non_stop=True, timeout=60, long_polling_timeout=60)
+            except Exception as e:
+                log("ERROR", f"Lỗi kết nối: {e}. Đang đợi 5s để hồi sinh...")
+                time.sleep(5)
+                log("SYSTEM", "Đang thử kết nối lại...")

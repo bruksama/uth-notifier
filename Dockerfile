@@ -13,6 +13,6 @@ RUN apk add --no-cache --virtual .build-deps postgresql-dev gcc python3-dev musl
     && apk del .build-deps
 
 # Bước 4: Copy file code của mày vào sau cùng
-COPY ./source/ .
+COPY source/ .
 
-CMD ["python", "uth_tele_bot.py"]
+CMD ["python", "main.py"]

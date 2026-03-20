@@ -7,14 +7,14 @@ import utils
 import time
 
 def getSystemStatus(bot, chatId, msgWaitId):
-    u = portalService.getUserData(chatId)
+    u = db.getUserCredentials(chatId)
     if not u:
         bot.edit_message_text("❌ Hình như bạn chưa đăng ký tài khoản. Hãy đăng ký để mình hỗ trợ tốt hơn nhé!", chatId, msgWaitId)
         return
 
     try:
-        rawUser = utils.decryptData(u[0])
-        rawPass = utils.decryptData(u[1])
+        rawUser = utils.decryptData(u[1])
+        rawPass = utils.decryptData(u[2])
 
         startTime = time.time()
         isValid, reason = portalService.verifyUthCredentials(rawUser, rawPass)

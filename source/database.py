@@ -5,6 +5,7 @@ import psycopg2
 import os
 import time
 from utils import log
+from psycopg2.extras import RealDictCursor
 
 dbConfig = {
     "host": os.getenv("DB_HOST", "127.0.0.1"),
@@ -78,11 +79,16 @@ def unmarkTaskCompleted(chatId, taskId):
 
 def getUserCredentials(chatId):
     try:
-        conn = getDbConn(); cur = conn.cursor()
+        conn = getDbConn()
+        # Ép cursor trả về Dictionary
+        cur = conn.cursor(cursor_factory=RealDictCursor) 
         cur.execute("SELECT * FROM users WHERE chat_id = %s", (str(chatId),))
-        res = cur.fetchone(); cur.close(); conn.close()
-        return res
-    except: return None
+        res = cur.fetchone()
+        cur.close(); conn.close()
+        return res # Trả về dạng: {'chat_id': '...', 'uth_user': '...', 'notify_enabled': True, ...}
+    except Exception as e:
+        log("ERROR", f"Lỗi lấy user {chatId}: {e}")
+        return None
 
 def updateDeadlineStatus(chatId, status):
     try:
@@ -91,6 +97,14 @@ def updateDeadlineStatus(chatId, status):
         conn.commit(); cur.close(); conn.close()
         return True
     except: return False
+
+def updateNotifyStatus(chatId, newStatus):
+    try:
+        conn = getDbConn(); cur = conn.cursor()
+        cur.execute("UPDATE users SET notify_enabled = %s WHERE chat_id = %s", (newStatus, str(chatId)))
+        conn.commit(); cur.close(); conn.close()
+        return True
+    except: return False        
 
 def getDeadlineStatus(chatId):
     try:

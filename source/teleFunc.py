@@ -13,8 +13,9 @@ def getSystemStatus(bot, chatId, msgWaitId):
         return
 
     try:
-        rawUser = utils.decryptData(u[1])
-        rawPass = utils.decryptData(u[2])
+        # Gọi tên cột, không đếm số nữa
+        rawUser = utils.decryptData(u['uth_user'])
+        rawPass = utils.decryptData(u['uth_pass'])
 
         startTime = time.time()
         isValid, reason = portalService.verifyUthCredentials(rawUser, rawPass)
@@ -22,7 +23,7 @@ def getSystemStatus(bot, chatId, msgWaitId):
 
         apiStatus = "✅ Hoạt động tốt" if isValid else f"❌ Có lỗi ({reason})"
         credStatus = "✅ Chính xác" if isValid else "❌ Mật khẩu chưa đúng"
-        notifyStatus = "🔔 Đang bật" if u[2] else "🔕 Đang tắt"
+        notifyStatus = "🔔 Đang bật" if u['notify_enabled'] else "🔕 Đang tắt"
         
         statusMsg = (
             "<b>📊 TRẠNG THÁI HỆ THỐNG CỦA BẠN</b>\n"
@@ -59,9 +60,20 @@ def broadcastToAllUsers(bot, content):
 def handleToggleNotify(chatId):
     u = db.getUserCredentials(chatId)
     if not u: return None, "❌ Bạn chưa đăng ký tài khoản."
-    newStatus = not u[3]
-    portalService.updateNotifyStatus(chatId, newStatus)
+
+    newStatus = not u['notify_enabled']
+
+    db.updateNotifyStatus(chatId, newStatus)
     return newStatus, f"✅ Đã <b>{'BẬT' if newStatus else 'TẮT'}</b> nhắc lịch tự động!"
+
+def handleToggleDeadlineNotify(chatId):
+    u = db.getUserCredentials(chatId)
+    if not u: return None, "❌ Bạn chưa đăng ký tài khoản."
+
+    newStatus = not u['notify_deadline']
+    
+    db.updateDeadlineStatus(chatId, newStatus)
+    return newStatus, f"✅ Đã <b>{'BẬT' if newStatus else 'TẮT'}</b> thông báo deadline hằng tuần!"
 
 def getAdminStats(adminId):
     try:
@@ -73,18 +85,6 @@ def getAdminStats(adminId):
         return f"📊 Tổng số người dùng: <b>{count}</b>"
     except: return "⚠️ Không thể lấy thống kê."
 
-def handleToggleDeadlineNotify(chatId):
-    u = db.getUserCredentials(chatId)
-    if not u: return None, "❌ Bạn chưa đăng ký tài khoản."
-
-    currentStatus = db.getDeadlineStatus(chatId)
-    newStatus = not currentStatus
-    
-    if db.updateDeadlineStatus(chatId, newStatus):
-        statusStr = "BẬT" if newStatus else "TẮT"
-        return newStatus, f"✅ Đã <b>{statusStr}</b> thông báo deadline hằng tuần!"
-    
-    return currentStatus, "❌ Có lỗi xảy ra khi cập nhật, bạn vui lòng thử lại sau nha."
 
 def handleSendFeedback(bot, message, adminId):
     if not message.text or len(message.text) < 5:

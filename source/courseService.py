@@ -103,8 +103,10 @@ def scanAllDeadlines(bot, chatId, isManual=False):
     u = db.getUserCredentials(chatId)
     if not u: return False
 
-    rawUser = utils.decryptData(u[1]); rawPass = utils.decryptData(u[2])
-    session, sesskey = fetchMoodleSession(rawUser, rawPass)
+    rawUser = utils.decryptData(u['uth_user'])
+    rawPass = utils.decryptData(u['uth_pass'])
+    
+    session, sesskey = getValidCourseSession(chatId, rawUser, rawPass)
     
     if not session or not sesskey:
         if isManual: bot.send_message(chatId, "❌ Không thể kết nối hệ thống Courses.")

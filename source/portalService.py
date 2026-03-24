@@ -57,8 +57,8 @@ def formatCalendarMessage(chatId, dateStr, isAuto=False):
     u = db.getUserCredentials(chatId)
     if not u: return "Bạn chưa đăng ký tài khoản!"
     
-    rawUser = utils.decryptData(u[1])
-    rawPass = utils.decryptData(u[2])
+    rawUser = utils.decryptData(u['uth_user'])
+    rawPass = utils.decryptData(u['uth_pass'])
 
     classes = getClassesByDate(chatId, rawUser, rawPass, dateStr)
     if classes:
@@ -74,10 +74,3 @@ def formatCalendarMessage(chatId, dateStr, isAuto=False):
     else:
         if not isAuto:
             return f"🎉 Ngày {dateStr} bạn được nghỉ nè!"
-
-def updateNotifyStatus(chatId, newStatus):
-    try:
-        conn = db.getDbConn(); cur = conn.cursor()
-        cur.execute("UPDATE users SET notify_enabled = %s WHERE chat_id = %s", (newStatus, str(chatId)))
-        conn.commit(); cur.close(); conn.close()
-    except: pass        

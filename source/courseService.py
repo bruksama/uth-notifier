@@ -1,6 +1,6 @@
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import database as db
 import utils
 import re
@@ -50,8 +50,6 @@ def fetchMoodleSession(username, password):
         utils.log("ERROR", f"Lỗi login Moodle: {e}")
         return None, None
 
-from datetime import datetime
-
 def prepareMonthlyPayload(startDate, numDays):
     now_ts = int(startDate.timestamp())
     end_ts = now_ts + (numDays * 24 * 60 * 60)
@@ -85,6 +83,11 @@ def getDeadlineMessages(chatId, session, sesskey, numDays=7):
     try:
         r = session.post(url, json=payload, timeout=15)
         responses = r.json()
+
+        if responses and isinstance(responses, list) and responses[0].get('error'):
+            utils.log("WARN", f"Session Moodle của {chatId} đã hết hạn")
+            return None
+        
         all_events = []
         completedIds = db.getCompletedTaskIds(chatId)
 
@@ -101,7 +104,9 @@ def getDeadlineMessages(chatId, session, sesskey, numDays=7):
         
         msgList = []
         for e in all_events:
-            due = datetime.fromtimestamp(e['timesort']).strftime('%d/%m %H:%M')
+            # FIX GIỜ: Cộng 7 tiếng (GMT+7) và trừ 30 phút (nhắc sớm) = + 6.5 hours
+            due_dt = datetime.fromtimestamp(e['timesort']) + timedelta(hours=7, minutes=-30)
+            due = due_dt.strftime('%d/%m %H:%M')
             isDone = str(e['id']) in completedIds
             status = "✅ Đã xong" if isDone else "❌ Chưa xong"
             
@@ -139,6 +144,14 @@ def scanAllDeadlines(bot, chatId, isManual=False):
 
     messages = getDeadlineMessages(chatId, session, sesskey, numDays=7)
 
+    if messages is None:
+        utils.log("INFO", f"Đang làm mới sesskey cho {chatId}")
+        redisManager.deleteSession(chatId, 'course')
+        session, sesskey = fetchMoodleSession(rawUser, rawPass)
+        if session and sesskey:
+            data = {"sesskey": sesskey, "cookies": requests.utils.dict_from_cookiejar(session.cookies)}
+            redisManager.saveSession(chatId, 'course', data)
+            messages = getDeadlineMessages(chatId, session, sesskey, numDays=7)
     if not messages:
         if isManual:
             bot.send_message(chatId, "🎉 <b>Tuyệt vời!</b>\nBạn không có deadline nào trong 7 ngày tới. Nghỉ ngơi thôi!", parse_mode="HTML")

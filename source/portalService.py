@@ -32,6 +32,10 @@ def getClassesByDate(chatId, user, password, targetDate):
         }
         
         res = requests.get(f"https://portal.ut.edu.vn/api/v1/lichhoc/lichTuan?date={isoDate}", headers=headers, timeout=20)
+
+        if not res.json().get("success"):
+            utils.log("WARN", f"Server Portal trả về success: false cho {chatId}")
+            return None
         
         if res.status_code == 401:
             utils.log("WARN", f"Token của {chatId} bị Invalid. Đang login lại")
@@ -91,11 +95,13 @@ def formatCalendarMessage(chatId, dateStr, isAuto=False):
         msg = header + "━━━━━━━━━━━━━━━━━━\n"
         for c in classes:
             courseLink = c.get('link', 'https://courses.ut.edu.vn/')
+            statusLabel = "🛑 Tạm ngưng" if c.get("isTamNgung") else "🟢 Bình thường"
+
             msg += f"\n📘 <a href='{courseLink}'>{c['tenMonHoc']}</a>"
             msg += f"\n⏰ {c['tuGio']} - {c['denGio']}"
-            msg += f"\n📍 {c['tenPhong']}\n"
+            msg += f"\n📍 {c['tenPhong']}"
+            msg += f"\n📌 {statusLabel}\n"
         msg += f"\n🔗 <a href='https://portal.ut.edu.vn/'>Portal UTH</a>"
         return msg
     else:
-        if not isAuto:
-            return f"🎉 Ngày {dateStr} bạn được nghỉ nè!"
+        return f"🎉 Ngày {dateStr} bạn được nghỉ nè!"

@@ -38,7 +38,7 @@ def getClassesByDate(chatId, user, password, targetDate):
         headers = {
             "authorization": f"Bearer {portalSession['token']}",
             "Referer": "https://portal.ut.edu.vn/calendar",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+            "User-Agent": portalSession.get("user_agent") or "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
             "accept": "application/json, text/plain, */*"
         }
         url = f"https://portal.ut.edu.vn/api/v1/lichhoc/lichTuan?date={isoDate}"
@@ -52,6 +52,7 @@ def getClassesByDate(chatId, user, password, targetDate):
             if not portalSession:
                 return None
             headers["authorization"] = f"Bearer {portalSession['token']}"
+            headers["User-Agent"] = portalSession.get("user_agent") or headers.get("User-Agent")
             res = utils.safeRequest("GET", url, headers=headers, cookies=portalSession.get("cookies") or {})
             if not res or not _is_json_response(res):
                 return None
@@ -97,6 +98,9 @@ def formatCalendarMessage(chatId, dateStr, isAuto=False):
     rawPass = utils.decryptData(u['uth_pass'])
 
     classes = getClassesByDate(chatId, rawUser, rawPass, dateStr)
+    if classes is None:
+        return "⚠️ Không thể lấy dữ liệu lịch từ Portal lúc này. Vui lòng thử lại sau."
+
     if classes:
         header = f"🔔 <b>NHẮC LỊCH TỰ ĐỘNG ({dateStr})</b>\n" if isAuto else f"📅 <b>LỊCH HỌC {dateStr}</b>\n"
         msg = header + "━━━━━━━━━━━━━━━━━━\n"
@@ -128,5 +132,5 @@ def formatCalendarMessage(chatId, dateStr, isAuto=False):
             msg += f"\n📌 {statusLabel}\n"
         msg += f"\n🔗 <a href='https://portal.ut.edu.vn/'>Portal UTH</a>"
         return msg
-    else:
-        return f"🎉 Ngày {dateStr} bạn được nghỉ nè!"
+
+    return f"🎉 Ngày {dateStr} bạn được nghỉ nè!"

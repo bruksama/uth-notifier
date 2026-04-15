@@ -89,7 +89,7 @@ def generateFakeCaptcha(length=30):
     return ''.join(random.choice(chars) for _ in range(length))
 
 def safeRequest(method, url, **kwargs):
-    headers = kwargs.get("headers", {})
+    headers = dict(kwargs.get("headers") or {})
     headers.update({"Connection": "close"})
 
     parsed = urlparse(url)

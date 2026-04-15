@@ -54,68 +54,71 @@ def build_auth_bundle(chat_id, username, password, force_relogin=False):
         _destroy_flaresolverr_session(session_id)
 
     _create_flaresolverr_session(session_id)
-    solve_data = _solve_portal_challenge(session_id)
-    user_agent = solve_data.get("userAgent") or _default_user_agent()
-
-    portal_session = requests.Session()
-    portal_session.headers.update({
-        "User-Agent": user_agent,
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://portal.ut.edu.vn/",
-        "Origin": "https://portal.ut.edu.vn",
-        "Connection": "close",
-    })
-    _apply_cookie_list(portal_session, solve_data.get("cookies") or [])
-
-    login_result = _portal_login(portal_session, username, password)
-    content_type = login_result.headers.get("content-type", "")
-    if "application/json" not in content_type.lower():
-        raise AuthUpstreamBlocked(
-            "Portal login returned non-JSON response. "
-            f"content-type={content_type or 'unknown'} body_snippet={_snippet(login_result.text)}"
-        )
-
     try:
-        login_data = login_result.json()
-    except Exception as exc:
-        raise AuthBootstrapError(f"Portal login JSON parse failed: {exc}. body_snippet={_snippet(login_result.text)}") from exc
+        solve_data = _solve_portal_challenge(session_id)
+        user_agent = solve_data.get("userAgent") or _default_user_agent()
 
-    token = login_data.get("token")
-    if login_result.status_code != 200 or not token:
-        raise AuthBootstrapError(login_data.get("message") or f"Portal login failed: HTTP {login_result.status_code}")
+        portal_session = requests.Session()
+        portal_session.headers.update({
+            "User-Agent": user_agent,
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://portal.ut.edu.vn/",
+            "Origin": "https://portal.ut.edu.vn",
+            "Connection": "close",
+        })
+        _apply_cookie_list(portal_session, solve_data.get("cookies") or [])
 
-    course_result = _bootstrap_course_session(portal_session, token)
-    course_html = course_result.text
-    sesskey = _extract_sesskey(course_html)
-    if not sesskey:
-        raise AuthBootstrapError(
-            "Courses session missing sesskey. "
-            f"content-type={course_result.headers.get('content-type', 'unknown')} body_snippet={_snippet(course_html)}"
-        )
+        login_result = _portal_login(portal_session, username, password)
+        content_type = login_result.headers.get("content-type", "")
+        if "application/json" not in content_type.lower():
+            raise AuthUpstreamBlocked(
+                "Portal login returned non-JSON response. "
+                f"content-type={content_type or 'unknown'} body_snippet={_snippet(login_result.text)}"
+            )
 
-    portal_cookies = _cookie_dict_for_domain(portal_session.cookies, "portal.ut.edu.vn")
-    course_cookies = _cookie_dict_for_domain(portal_session.cookies, "courses.ut.edu.vn")
-    if not course_cookies:
-        raise AuthBootstrapError("Courses bootstrap succeeded but no courses cookies were stored")
+        try:
+            login_data = login_result.json()
+        except Exception as exc:
+            raise AuthBootstrapError(f"Portal login JSON parse failed: {exc}. body_snippet={_snippet(login_result.text)}") from exc
 
-    token_expiry = _decode_token_expiry(token)
-    course_expiry = _cookie_expiry(portal_session.cookies, "courses.ut.edu.vn")
-    return {
-        "token": token,
-        "portal_cookies": portal_cookies,
-        "course_cookies": course_cookies,
-        "sesskey": sesskey,
-        "user_agent": user_agent,
-        "expires": {
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "portal_token_exp_epoch": token_expiry,
-            "portal_token_exp_iso": _iso_from_epoch(token_expiry),
-            "portal_cache_ttl_seconds": _ttl_from_expiry(token_expiry, DEFAULT_PORTAL_TTL),
-            "course_cookie_exp_epoch": course_expiry,
-            "course_cookie_exp_iso": _iso_from_epoch(course_expiry),
-            "course_cache_ttl_seconds": _ttl_from_expiry(course_expiry, DEFAULT_COURSE_TTL),
-        },
-    }
+        token = login_data.get("token")
+        if login_result.status_code != 200 or not token:
+            raise AuthBootstrapError(login_data.get("message") or f"Portal login failed: HTTP {login_result.status_code}")
+
+        course_result = _bootstrap_course_session(portal_session, token)
+        course_html = course_result.text
+        sesskey = _extract_sesskey(course_html)
+        if not sesskey:
+            raise AuthBootstrapError(
+                "Courses session missing sesskey. "
+                f"content-type={course_result.headers.get('content-type', 'unknown')} body_snippet={_snippet(course_html)}"
+            )
+
+        portal_cookies = _cookie_dict_for_domain(portal_session.cookies, "portal.ut.edu.vn")
+        course_cookies = _cookie_dict_for_domain(portal_session.cookies, "courses.ut.edu.vn")
+        if not course_cookies:
+            raise AuthBootstrapError("Courses bootstrap succeeded but no courses cookies were stored")
+
+        token_expiry = _decode_token_expiry(token)
+        course_expiry = _cookie_expiry(portal_session.cookies, "courses.ut.edu.vn")
+        return {
+            "token": token,
+            "portal_cookies": portal_cookies,
+            "course_cookies": course_cookies,
+            "sesskey": sesskey,
+            "user_agent": user_agent,
+            "expires": {
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "portal_token_exp_epoch": token_expiry,
+                "portal_token_exp_iso": _iso_from_epoch(token_expiry),
+                "portal_cache_ttl_seconds": _ttl_from_expiry(token_expiry, DEFAULT_PORTAL_TTL),
+                "course_cookie_exp_epoch": course_expiry,
+                "course_cookie_exp_iso": _iso_from_epoch(course_expiry),
+                "course_cache_ttl_seconds": _ttl_from_expiry(course_expiry, DEFAULT_COURSE_TTL),
+            },
+        }
+    finally:
+        _destroy_flaresolverr_session(session_id)
 
 
 def _safe_chat_id(chat_id):
@@ -244,10 +247,18 @@ def _bootstrap_course_session(session, token):
     )
 
 
+def _cookie_matches_domain(cookie_domain, target_host):
+    cookie_domain = (cookie_domain or "").lstrip(".").lower()
+    target_host = (target_host or "").lstrip(".").lower()
+    if not cookie_domain or not target_host:
+        return False
+    return target_host == cookie_domain or target_host.endswith(f".{cookie_domain}") or cookie_domain.endswith(f".{target_host}")
+
+
 def _cookie_dict_for_domain(cookiejar, domain_fragment):
     out = {}
     for cookie in cookiejar:
-        if domain_fragment in (cookie.domain or ""):
+        if _cookie_matches_domain(cookie.domain, domain_fragment):
             out[cookie.name] = cookie.value
     return out
 

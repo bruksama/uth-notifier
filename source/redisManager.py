@@ -109,6 +109,7 @@ def _wait_for_session(chatId, serviceType):
 
 def _save_auth_bundle(chatId, brokerData):
     expires = brokerData.get("expires") or {}
+    userAgent = brokerData.get("user_agent")
     portalData = {
         "token": brokerData.get("token"),
         "cookies": brokerData.get("portal_cookies") or {},
@@ -119,6 +120,9 @@ def _save_auth_bundle(chatId, brokerData):
         "sesskey": brokerData.get("sesskey"),
         "expires": expires,
     }
+    if userAgent:
+        portalData["user_agent"] = userAgent
+        courseData["user_agent"] = userAgent
 
     saveSession(chatId, "portal", portalData, _clamp_ttl(expires.get("portal_cache_ttl_seconds"), DEFAULT_PORTAL_TTL))
     saveSession(chatId, "course", courseData, _clamp_ttl(expires.get("course_cache_ttl_seconds"), DEFAULT_COURSE_TTL))
@@ -167,6 +171,7 @@ def refreshAuthBundle(chatId, user, password, force_refresh=False):
             "portal_cookies": portalData.get("cookies") or {},
             "course_cookies": courseData.get("cookies") or {},
             "sesskey": courseData.get("sesskey"),
+            "user_agent": portalData.get("user_agent") or courseData.get("user_agent"),
             "expires": courseData.get("expires") or portalData.get("expires") or {},
         }
     raise RuntimeError("Không thể chờ auth broker làm mới session")

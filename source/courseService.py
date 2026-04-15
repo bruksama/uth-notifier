@@ -11,10 +11,10 @@ def getValidCourseSession(chatId, rawUser, rawPass, force_refresh=False):
     try:
         cached = redisManager.getCourseSession(chatId, rawUser, rawPass, force_refresh=force_refresh)
         if cached:
-            return cached.get("cookies"), cached.get("sesskey")
+            return cached.get("cookies"), cached.get("sesskey"), cached.get("user_agent")
     except Exception as e:
         utils.log("ERROR", f"Lỗi lấy session Courses: {e}")
-    return None, None
+    return None, None, None
 
 def prepareMonthlyPayload(startDate, numDays):
     now_ts = int(startDate.timestamp())
@@ -41,18 +41,23 @@ def prepareMonthlyPayload(startDate, numDays):
         })
     return payload, now_ts, end_ts
 
-def getDeadlineMessages(chatId, cookieDict, sesskey, startDate=None, numDays=7):
+def getDeadlineMessages(chatId, cookieDict, sesskey, user_agent=None, startDate=None, numDays=7):
     if startDate is None:
         startDate = datetime.now()
         
     payload, startTs, endTs = prepareMonthlyPayload(startDate, numDays)
     url = f"https://courses.ut.edu.vn/lib/ajax/service.php?sesskey={sesskey}"
+    headers = {"Connection": "close"}
+    if user_agent:
+        headers["User-Agent"] = user_agent
+        headers["Referer"] = "https://courses.ut.edu.vn/my/"
+        headers["Accept"] = "application/json, text/plain, */*"
     
     with requests.Session(impersonate="chrome110") as s:
         s.cookies.update(cookieDict)
         
         try:
-            r = s.post(url, json=payload, headers={"Connection": "close"}, timeout=15)
+            r = s.post(url, json=payload, headers=headers, timeout=15)
             responses = r.json()
 
             if responses and isinstance(responses, list) and responses[0].get('error'):
@@ -106,19 +111,19 @@ def scanAllDeadlines(bot, chatId, isManual=False, startDate=None, numDays=7):
     rawUser = utils.decryptData(u['uth_user'])
     rawPass = utils.decryptData(u['uth_pass'])
     
-    session, sesskey = getValidCourseSession(chatId, rawUser, rawPass)
+    session, sesskey, userAgent = getValidCourseSession(chatId, rawUser, rawPass)
     
     if not session or not sesskey:
         if isManual: bot.send_message(chatId, "❌ Không thể kết nối hệ thống Courses.")
         return False
 
-    messages = getDeadlineMessages(chatId, session, sesskey, startDate=startDate, numDays=numDays)
+    messages = getDeadlineMessages(chatId, session, sesskey, user_agent=userAgent, startDate=startDate, numDays=numDays)
 
     if messages is None:
         utils.log("INFO", f"Đang làm mới sesskey cho {chatId}")
-        session, sesskey = getValidCourseSession(chatId, rawUser, rawPass, force_refresh=True)
+        session, sesskey, userAgent = getValidCourseSession(chatId, rawUser, rawPass, force_refresh=True)
         if session and sesskey:
-            messages = getDeadlineMessages(chatId, session, sesskey, startDate=startDate, numDays=numDays)
+            messages = getDeadlineMessages(chatId, session, sesskey, user_agent=userAgent, startDate=startDate, numDays=numDays)
             
     if not messages:
         if isManual:

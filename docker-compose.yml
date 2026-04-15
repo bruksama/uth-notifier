@@ -22,8 +22,6 @@ services:
       - LOG_LEVEL=info
       - TZ=Asia/Ho_Chi_Minh
       - HEADLESS=true
-    ports:
-      - "8191:8191"
 
   uth_auth_broker:
     build: ./auth-broker
@@ -42,8 +40,6 @@ services:
       - FLARESOLVERR_WAIT_SECONDS=${FLARESOLVERR_WAIT_SECONDS:-8}
     volumes:
       - auth_broker_data:/data
-    ports:
-      - "8000:8000"
 
   uth_bot:
     build: .
@@ -80,8 +76,6 @@ services:
       - redis_data:/data
     networks:
       - uth-network
-    ports:
-      - "6379:6379"
 
   flower:
     image: mher/flower:latest

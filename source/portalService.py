@@ -15,7 +15,7 @@ def _is_json_response(response):
     return "application/json" in contentType
 
 
-def verifyUthCredentials(chatId, user, password):
+def verifyUthCredentials(chatId, user, password=None):
     try:
         portalSession = redisManager.getPortalSession(chatId, user, password, force_refresh=True)
         if portalSession and portalSession.get("token"):

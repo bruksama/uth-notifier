@@ -98,7 +98,9 @@ def _release_refresh_lock(lock_key, lock_value):
 def _wait_for_session(chatId, serviceType):
     deadline = time.time() + AUTH_REFRESH_LOCK_WAIT
     while time.time() < deadline:
-        cached = getSession(chatId, serviceType)
+        # Sử dụng Redis đọc trực tiếp thay vì getSession để tránh flood logs
+        data = redisClient.get(_session_key(chatId, serviceType))
+        cached = _decode_json(data)
         if serviceType == "portal" and _valid_portal_session(cached):
             return cached
         if serviceType == "course" and _valid_course_session(cached):

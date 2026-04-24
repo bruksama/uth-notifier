@@ -111,9 +111,9 @@ def safeRequest(method, url, **kwargs):
 
     try:
         with requests.Session() as s:
-            respone = getattr(s, method.lower())(url, **kwargs)
-            log(method, f"Gửi thành công request: {url} -> {respone.status_code}")
-            return respone
+            response = getattr(s, method.lower())(url, **kwargs)
+            log(method, f"Gửi thành công request: {url} -> {response.status_code}")
+            return response
     except Exception as e:
         log("WARN", f"Request Error: {e}")
         return None

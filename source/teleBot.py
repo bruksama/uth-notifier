@@ -174,6 +174,11 @@ def registerHandlers(bot):
             bot.answer_callback_query(call.id, "🚀 Đang chạy quét deadline...")
             threading.Thread(target=cronService.autoScanAllUsers, args=(bot,)).start()
 
+    @bot.callback_query_handler(func=lambda call: call.data == 'admin_db_stats')
+    def handleAdminDbStats(call):
+        bot.answer_callback_query(call.id, "Đang lấy thống kê...")
+        bot.send_message(call.message.chat.id, teleFunc.getAdminStats(adminId), parse_mode="HTML")
+
     @bot.message_handler(func=lambda m: True)
     def handleUnknown(message):
         bot.reply_to(message, "⚠️ Lệnh này mình chưa hiểu, bạn vui lòng sử dụng các nút ở menu nhé!", reply_markup=mainMenu(message.chat.id))

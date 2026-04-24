@@ -3,50 +3,60 @@
 
 # from curl_cffi import requests
 from datetime import datetime
+
 import database as db
-import utils
 import redisManager
+import utils
 
 # session = requests.Session(impersonate="chrome110")
 
-def verifyUthCredentials(user, password):
-    try:
-        fakeCaptcha = utils.generateFakeCaptcha()
-        url = f"https://portal.ut.edu.vn/api/v1/user/login?g-recaptcha-response={fakeCaptcha}"
+def _is_json_response(response):
+    contentType = (response.headers.get("content-type") or "").lower()
+    return "application/json" in contentType
 
-        r = utils.safeRequest("POST", url, json={"username": user, "password": password})
-        data = r.json()
-        if r.status_code == 200 and data.get("token"): return True, "Thành công"
-        return False, data.get("message", "Sai tài khoản hoặc mật khẩu")
-    except: return False, "Lỗi kết nối server trường"
+
+def verifyUthCredentials(chatId, user, password):
+    try:
+        portalSession = redisManager.getPortalSession(chatId, user, password, force_refresh=True)
+        if portalSession and portalSession.get("token"):
+            return True, "Thành công"
+        return False, "Không thể tạo session Portal"
+    except Exception as e:
+        utils.log("ERROR", f"verifyUthCredentials lỗi: {e}")
+        return False, str(e)
 
 def getClassesByDate(chatId, user, password, targetDate):
     try:
-        tk = getValidPortalToken(chatId, user, password)
-        if not tk: return None
+        portalSession = getValidPortalSession(chatId, user, password)
+        if not portalSession:
+            return None
         
         dateObj = datetime.strptime(targetDate, "%d/%m/%Y")
         isoDate = dateObj.strftime("%Y-%m-%d")
         searchDate = targetDate
         
         headers = {
-            "authorization": f"Bearer {tk}",
+            "authorization": f"Bearer {portalSession['token']}",
             "Referer": "https://portal.ut.edu.vn/calendar",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+            "User-Agent": portalSession.get("user_agent") or "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
             "accept": "application/json, text/plain, */*"
         }
-        
-        res = utils.safeRequest("GET", f"https://portal.ut.edu.vn/api/v1/lichhoc/lichTuan?date={isoDate}", headers=headers)
-        # print(res.text)
-        
-        if res.status_code == 401:
-            utils.log("WARN", f"Token của {chatId} bị Invalid. Đang login lại")
-            tk = redisManager.loginAndSaveToken(chatId, user, password) 
-            if not tk: return None
-            headers["authorization"] = f"Bearer {tk}"
-            url = f"https://portal.ut.edu.vn/api/v1/lichhoc/lichTuan?date={isoDate}"
-            res = utils.safeRequest("GET", url, headers=headers)
-            
+        url = f"https://portal.ut.edu.vn/api/v1/lichhoc/lichTuan?date={isoDate}"
+        res = utils.safeRequest("GET", url, headers=headers, cookies=portalSession.get("cookies") or {})
+        if not res:
+            return None
+
+        if res.status_code == 401 or not _is_json_response(res):
+            utils.log("WARN", f"Portal session của {chatId} hết hạn hoặc bị chặn. Đang làm mới")
+            portalSession = getValidPortalSession(chatId, user, password, force_refresh=True)
+            if not portalSession:
+                return None
+            headers["authorization"] = f"Bearer {portalSession['token']}"
+            headers["User-Agent"] = portalSession.get("user_agent") or headers.get("User-Agent")
+            res = utils.safeRequest("GET", url, headers=headers, cookies=portalSession.get("cookies") or {})
+            if not res or not _is_json_response(res):
+                return None
+
         body = res.json().get("body", [])
         
         if res.status_code == 200:
@@ -57,7 +67,7 @@ def getClassesByDate(chatId, user, password, targetDate):
         return None
 
 def verifyAndSaveUser(chatId, mssv, password):
-    isValid, reason = verifyUthCredentials(mssv, password)
+    isValid, reason = verifyUthCredentials(chatId, mssv, password)
     if isValid:
         conn = db.getDbConn(); cur = conn.cursor()
         cur.execute(
@@ -71,20 +81,11 @@ def verifyAndSaveUser(chatId, mssv, password):
     utils.log("ERROR", f"User {chatId} đăng ký thất bại: {reason}")
     return False, f"❌ Thất bại: {reason}"
 
-def getValidPortalToken(chatId, rawUser, rawPass):
-    cachedToken = redisManager.getSession(chatId, 'portal')
-    if cachedToken: return cachedToken
-
+def getValidPortalSession(chatId, rawUser, rawPass, force_refresh=False):
     try:
-        fakeCaptcha = utils.generateFakeCaptcha()
-        url = f"https://portal.ut.edu.vn/api/v1/user/login?g-recaptcha-response={fakeCaptcha}"
-        r = utils.safeRequest("POST", url, json={"username": rawUser, "password": rawPass})
-
-        token = r.json().get("token")
-        utils.log("INFO", f"Portal trả về: {r.json().get('message')}")
-        if token:
-            redisManager.saveSession(chatId, 'portal', token, expire=7200)
-            return token
+        portalSession = redisManager.getPortalSession(chatId, rawUser, rawPass, force_refresh=force_refresh)
+        if portalSession and portalSession.get("token"):
+            return portalSession
     except Exception as e:
         utils.log("ERROR", f"Lỗi Server Portal: {e}")
     return None
@@ -97,6 +98,9 @@ def formatCalendarMessage(chatId, dateStr, isAuto=False):
     rawPass = utils.decryptData(u['uth_pass'])
 
     classes = getClassesByDate(chatId, rawUser, rawPass, dateStr)
+    if classes is None:
+        return "⚠️ Không thể lấy dữ liệu lịch từ Portal lúc này. Vui lòng thử lại sau."
+
     if classes:
         header = f"🔔 <b>NHẮC LỊCH TỰ ĐỘNG ({dateStr})</b>\n" if isAuto else f"📅 <b>LỊCH HỌC {dateStr}</b>\n"
         msg = header + "━━━━━━━━━━━━━━━━━━\n"
@@ -128,5 +132,5 @@ def formatCalendarMessage(chatId, dateStr, isAuto=False):
             msg += f"\n📌 {statusLabel}\n"
         msg += f"\n🔗 <a href='https://portal.ut.edu.vn/'>Portal UTH</a>"
         return msg
-    else:
-        return f"🎉 Ngày {dateStr} bạn được nghỉ nè!"
+
+    return f"🎉 Ngày {dateStr} bạn được nghỉ nè!"
